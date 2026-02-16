@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from typing import Any
 
 from loguru import logger
 
@@ -13,59 +12,60 @@ from nanobot.config.schema import WhatsAppConfig
 
 
 class WhatsAppChannel(BaseChannel):
-    """
-    WhatsApp channel that connects to a Node.js bridge.
-    
+    """WhatsApp channel that connects to a Node.js bridge.
+
     The bridge uses @whiskeysockets/baileys to handle the WhatsApp Web protocol.
     Communication between Python and Node.js is via WebSocket.
     """
-    
+
     name = "whatsapp"
-    
+
     def __init__(self, config: WhatsAppConfig, bus: MessageBus):
         super().__init__(config, bus)
         self.config: WhatsAppConfig = config
         self._ws = None
         self._connected = False
-    
+
     async def start(self) -> None:
         """Start the WhatsApp channel by connecting to the bridge."""
         import websockets
-        
+
         bridge_url = self.config.bridge_url
-        
+
         logger.info(f"Connecting to WhatsApp bridge at {bridge_url}...")
-        
+
         self._running = True
-        
+
         while self._running:
             try:
                 async with websockets.connect(bridge_url) as ws:
                     self._ws = ws
                     # Send auth token if configured
                     if self.config.bridge_token:
-                        await ws.send(json.dumps({"type": "auth", "token": self.config.bridge_token}))
+                        await ws.send(
+                            json.dumps(
+                                {"type": "auth", "token": self.config.bridge_token}
+                            )
+                        )
                     self._connected = True
                     logger.info("Connected to WhatsApp bridge")
-                    
+
                     # Listen for messages
                     async for message in ws:
                         try:
                             await self._handle_bridge_message(message)
                         except Exception as e:
                             logger.error(f"Error handling bridge message: {e}")
-                    
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._connected = False
                 self._ws = None
                 logger.warning(f"WhatsApp bridge connection error: {e}")
-                
+
                 if self._running:
                     logger.info("Reconnecting in 5 seconds...")
-                    await asyncio.sleep(5)
-    
     async def stop(self) -> None:
         """Stop the WhatsApp channel."""
         self._running = False

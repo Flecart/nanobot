@@ -37,6 +37,7 @@ export class WhatsAppClient {
   private sock: any = null;
   private options: WhatsAppClientOptions;
   private reconnecting = false;
+  private botJid: string | null = null;
 
   constructor(options: WhatsAppClientOptions) {
     this.options = options;
@@ -97,6 +98,7 @@ export class WhatsAppClient {
           }, 5000);
         }
       } else if (connection === 'open') {
+        this.botJid = state.creds.me?.id ?? this.sock?.user?.id ?? null;
         console.log('✅ Connected to WhatsApp');
         this.options.onStatus('connected');
       }
@@ -110,11 +112,11 @@ export class WhatsAppClient {
       if (type !== 'notify') return;
 
       for (const msg of messages) {
-        // Skip own messages
-        if (msg.key.fromMe) continue;
-
         // Skip status updates
         if (msg.key.remoteJid === 'status@broadcast') continue;
+
+        // Only respond to messages sent to self (message-to-self chat)
+        if (!this.botJid || msg.key.remoteJid !== this.botJid) continue;
 
         const content = this.extractMessageContent(msg);
         if (!content) continue;
