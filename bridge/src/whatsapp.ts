@@ -109,7 +109,7 @@ export class WhatsAppClient {
 
     // Save credentials on update
     this.sock.ev.on('creds.update', (update: any) => {
-      saveCreds(update);
+      saveCreds();
       if (update.me) {
         if (update.me.id) this.botJid = update.me.id;
         if (update.me.lid) this.botLid = update.me.lid;
