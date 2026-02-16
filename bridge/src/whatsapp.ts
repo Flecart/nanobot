@@ -38,6 +38,7 @@ export class WhatsAppClient {
   private options: WhatsAppClientOptions;
   private reconnecting = false;
   private botJid: string | null = null;
+  private botLid: string | null = null;
 
   constructor(options: WhatsAppClientOptions) {
     this.options = options;
@@ -98,14 +99,22 @@ export class WhatsAppClient {
           }, 5000);
         }
       } else if (connection === 'open') {
-        this.botJid = state.creds.me?.id ?? this.sock?.user?.id ?? null;
+        const me = state.creds.me;
+        this.botJid = me?.id ?? this.sock?.user?.id ?? null;
+        this.botLid = me?.lid ?? null;
         console.log('✅ Connected to WhatsApp');
         this.options.onStatus('connected');
       }
     });
 
     // Save credentials on update
-    this.sock.ev.on('creds.update', saveCreds);
+    this.sock.ev.on('creds.update', (update: any) => {
+      saveCreds(update);
+      if (update.me) {
+        if (update.me.id) this.botJid = update.me.id;
+        if (update.me.lid) this.botLid = update.me.lid;
+      }
+    });
 
     // Handle incoming messages
     this.sock.ev.on('messages.upsert', async ({ messages, type }: { messages: any[]; type: string }) => {
@@ -116,7 +125,13 @@ export class WhatsAppClient {
         if (msg.key.remoteJid === 'status@broadcast') continue;
 
         // Only respond to messages sent to self (message-to-self chat)
-        if (!this.botJid || msg.key.remoteJid !== this.botJid) continue;
+        // Baileys v7 uses both LID and PN formats; check remoteJid and remoteJidAlt
+        const remoteJid = msg.key.remoteJid || '';
+        const remoteJidAlt = msg.key.remoteJidAlt || '';
+        const isMessageToSelf =
+          (this.botJid && (remoteJid === this.botJid || remoteJidAlt === this.botJid)) ||
+          (this.botLid && (remoteJid === this.botLid || remoteJidAlt === this.botLid));
+        if (!isMessageToSelf) continue;
 
         const content = this.extractMessageContent(msg);
         if (!content) continue;
