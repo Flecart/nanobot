@@ -58,6 +58,21 @@ class BaseChannel(ABC):
         """
         pass
     
+    @staticmethod
+    def _normalize_id(raw: str) -> str:
+        """Normalize an identifier for comparison.
+        
+        Strips leading '+', '@domain' suffixes, and ':device' suffixes so that
+        '+1234567890', '1234567890@s.whatsapp.net', '1234567890:5@s.whatsapp.net',
+        and '1234567890' all normalize to '1234567890'.
+        """
+        s = raw.strip().lstrip("+")
+        if "@" in s:
+            s = s.split("@", 1)[0]
+        if ":" in s:
+            s = s.split(":", 1)[0]
+        return s
+
     def is_allowed(self, sender_id: str) -> bool:
         """
         Check if a sender is allowed to use this bot.
@@ -74,12 +89,16 @@ class BaseChannel(ABC):
         if not allow_list:
             return True
         
+        normalized_allow = {self._normalize_id(a) for a in allow_list}
+        
         sender_str = str(sender_id)
-        if sender_str in allow_list:
+        # Check raw and normalized sender
+        if sender_str in allow_list or self._normalize_id(sender_str) in normalized_allow:
             return True
+        # Handle composite ids like "12345|username"
         if "|" in sender_str:
             for part in sender_str.split("|"):
-                if part and part in allow_list:
+                if part and (part in allow_list or self._normalize_id(part) in normalized_allow):
                     return True
         return False
     
