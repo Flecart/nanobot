@@ -9,6 +9,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
+  jidNormalizedUser,
 } from '@whiskeysockets/baileys';
 
 import { Boom } from '@hapi/boom';
@@ -100,9 +101,10 @@ export class WhatsAppClient {
         }
       } else if (connection === 'open') {
         const me = state.creds.me;
-        this.botJid = me?.id ?? this.sock?.user?.id ?? null;
-        this.botLid = me?.lid ?? null;
-        console.log('✅ Connected to WhatsApp');
+        const rawJid = me?.id ?? this.sock?.user?.id ?? null;
+        this.botJid = rawJid ? jidNormalizedUser(rawJid) : null;
+        this.botLid = me?.lid ? jidNormalizedUser(me.lid) : null;
+        console.log(`✅ Connected to WhatsApp (jid=${this.botJid}, lid=${this.botLid})`);
         this.options.onStatus('connected');
       }
     });
@@ -111,8 +113,8 @@ export class WhatsAppClient {
     this.sock.ev.on('creds.update', (update: any) => {
       saveCreds();
       if (update.me) {
-        if (update.me.id) this.botJid = update.me.id;
-        if (update.me.lid) this.botLid = update.me.lid;
+        if (update.me.id) this.botJid = jidNormalizedUser(update.me.id);
+        if (update.me.lid) this.botLid = jidNormalizedUser(update.me.lid);
       }
     });
 
@@ -125,12 +127,14 @@ export class WhatsAppClient {
         if (msg.key.remoteJid === 'status@broadcast') continue;
 
         // Only respond to messages sent to self (message-to-self chat)
-        // Baileys v7 uses both LID and PN formats; check remoteJid and remoteJidAlt
-        const remoteJid = msg.key.remoteJid || '';
-        const remoteJidAlt = msg.key.remoteJidAlt || '';
+        // Baileys v7 uses both LID and PN formats; normalize and check both
+        const remoteJid = msg.key.remoteJid ? jidNormalizedUser(msg.key.remoteJid) : '';
+        const remoteJidAlt = msg.key.remoteJidAlt ? jidNormalizedUser(msg.key.remoteJidAlt) : '';
         const isMessageToSelf =
           (this.botJid && (remoteJid === this.botJid || remoteJidAlt === this.botJid)) ||
           (this.botLid && (remoteJid === this.botLid || remoteJidAlt === this.botLid));
+
+        console.log(`📩 Message from=${remoteJid} alt=${remoteJidAlt} botJid=${this.botJid} botLid=${this.botLid} self=${isMessageToSelf}`);
         if (!isMessageToSelf) continue;
 
         const content = this.extractMessageContent(msg);
