@@ -38,8 +38,7 @@ export class WhatsAppClient {
   private sock: any = null;
   private options: WhatsAppClientOptions;
   private reconnecting = false;
-  private botJid: string | null = null;
-  private botLid: string | null = null;
+  private myJids: Set<string> = new Set();
 
   constructor(options: WhatsAppClientOptions) {
     this.options = options;
@@ -100,22 +99,16 @@ export class WhatsAppClient {
           }, 5000);
         }
       } else if (connection === 'open') {
-        const me = state.creds.me;
-        const rawJid = me?.id ?? this.sock?.user?.id ?? null;
-        this.botJid = rawJid ? jidNormalizedUser(rawJid) : null;
-        this.botLid = me?.lid ? jidNormalizedUser(me.lid) : null;
-        console.log(`✅ Connected to WhatsApp (jid=${this.botJid}, lid=${this.botLid})`);
+        this._updateMyJids(state.creds.me);
+        console.log(`✅ Connected to WhatsApp (myJids: ${[...this.myJids].join(', ')})`);
         this.options.onStatus('connected');
       }
     });
 
     // Save credentials on update
-    this.sock.ev.on('creds.update', (update: any) => {
+    this.sock.ev.on('creds.update', (creds: any) => {
       saveCreds();
-      if (update.me) {
-        if (update.me.id) this.botJid = jidNormalizedUser(update.me.id);
-        if (update.me.lid) this.botLid = jidNormalizedUser(update.me.lid);
-      }
+      this._updateMyJids(creds.me);
     });
 
     // Handle incoming messages
@@ -126,21 +119,17 @@ export class WhatsAppClient {
         // Skip status updates
         if (msg.key.remoteJid === 'status@broadcast') continue;
 
-        // Only respond to messages sent to self (message-to-self chat)
-        // Baileys v7 uses both LID and PN formats; normalize and check both
-        const remoteJid = msg.key.remoteJid ? jidNormalizedUser(msg.key.remoteJid) : '';
-        const remoteJidAlt = msg.key.remoteJidAlt ? jidNormalizedUser(msg.key.remoteJidAlt) : '';
-        const isMessageToSelf =
-          (this.botJid && (remoteJid === this.botJid || remoteJidAlt === this.botJid)) ||
-          (this.botLid && (remoteJid === this.botLid || remoteJidAlt === this.botLid));
+        // Skip group messages
+        if (msg.key.remoteJid?.endsWith('@g.us')) continue;
 
-        console.log(`📩 Message from=${remoteJid} alt=${remoteJidAlt} botJid=${this.botJid} botLid=${this.botLid} self=${isMessageToSelf}`);
-        if (!isMessageToSelf) continue;
+        // If I sent this message, only process it if it's to myself (self-chat)
+        if (msg.key.fromMe) {
+          const remoteNorm = msg.key.remoteJid ? jidNormalizedUser(msg.key.remoteJid) : '';
+          if (!this.myJids.has(remoteNorm)) continue;
+        }
 
         const content = this.extractMessageContent(msg);
         if (!content) continue;
-
-        const isGroup = msg.key.remoteJid?.endsWith('@g.us') || false;
 
         this.options.onMessage({
           id: msg.key.id || '',
@@ -148,10 +137,16 @@ export class WhatsAppClient {
           pn: msg.key.remoteJidAlt || '',
           content,
           timestamp: msg.messageTimestamp as number,
-          isGroup,
+          isGroup: false,
         });
       }
     });
+  }
+
+  private _updateMyJids(me: any): void {
+    if (!me) return;
+    if (me.id) this.myJids.add(jidNormalizedUser(me.id));
+    if (me.lid) this.myJids.add(jidNormalizedUser(me.lid));
   }
 
   private extractMessageContent(msg: any): string | null {
